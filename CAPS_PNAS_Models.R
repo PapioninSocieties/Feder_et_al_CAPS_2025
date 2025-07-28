@@ -4,7 +4,6 @@
 ## across a primate radiation
 
 ## LOAD NECESSARY PACKAGES
-library(lubridate)
 library(dplyr)
 library(ggplot2)
 library(igraph)
@@ -19,13 +18,22 @@ library(performance)
 library(modelr)
 library(ggbeeswarm)
 library(patchwork)
+library(ggtree)
 theme_set(theme_classic(base_size = 16))
 
 ## SETWD
 setwd("~/Desktop/SPRF/PNAS/GitHub")
 
+## SET PALETTES
+pal1 <- c("#4D759C","#9c68b3", "#66a182")
+pal2<-c("#7373A4", "#66a182")
+
 ## GET GROUP-LEVEL DATA
-caps_groups<-read.csv("CAPS_Groups.csv")
+caps.groups<-read.csv("CAPS_groups.csv")
+
+## FIX LEVELS
+caps.groups$Cat.Classic<-factor(caps.groups$Cat.Classic, levels=c("Single-level","Multi-level"))
+caps.groups$Cat.New<-factor(caps.groups$Cat.New, levels=c("Cohesive","Cliquish", "Multi-level"))
 
 ## LOAD TREE FILE FROM KUDERNA ET AL. 2023
 treefile<-ape::read.tree("Kuderna_Tree2.nex.tree")
@@ -34,53 +42,100 @@ phylo1$edge.length
 
 ## TRIM TO INCLUDE SAMPLED TAXA
 ## AND CONGENERIC COGNATES
-keep<-unique(caps_groups$phylo)
+keep<-unique(caps.groups$phylo)
 phylo1<-keep.tip(phylo1, keep)
 phylo.check<-phylo1
 plot.phylo(phylo.check,  edge.width = 2,cex=1, label.offset = 0)
 A <- ape::vcv.phylo(phylo1, corr=T)
-
-colnames(caps_groups)
+colnames(caps.groups)
 
 ## PART 1
 ## Papionin grooming networks vary as a function of network size and social system
 
+## MAKE PLOT WITH TREE
+tips<-as.character(unique(caps.groups$phylo))
+tips.kept<-keep.tip(phylo1, tips)
+tips.kept$tip.label
+tips.kept$tip.label<-c("Gelada","Gray-cheeked mangabey", "Hamadryas baboon", "Olive baboon","Guinea baboon",
+                       "Yellow baboon", "Chacma baboon","Kinda baboon", "Mandrill", "Sanje mangabey", "Sooty mangabey")
+tips.kept$Cat.New<-c("Multi-level","Cohesive", "Multi-level", "Cohesive","Multi-level",
+                  "Cohesive","Cliquish","Cliquish","Cliquish","Cohesive","Cohesive")
+
+pal1[2]
+gg_tr <- ggtree(tips.kept)  + geom_tiplab(color=c(pal1[3],pal1[1],pal1[3],
+                                                  pal1[1],pal1[3],pal1[1],
+                                                  pal1[2],pal1[2],pal1[2],
+                                                  pal1[1],pal1[1]),
+                                          align=T, size=5)# make more room for the labels
+gg_tr<- gg_tr + xlim(0,28)
+gg_tr
+
+## PLOT DENSITY ALONGSIDE PHYLOGENY
+caps.groups$species<-as.factor(caps.groups$species)
+levels(caps.groups$species)<-list("Mandrill"="Mandrillus_sphinx", "Sooty\nmangabey"="Cercocebus_atys_atys","Sanje\nmangabey"="Cercocebus_sanjei", "Gray-cheeked\nmangabey"="Lophocebus_albigena", "Hamadryas\baboon"="Papio_hamadryas", "Olive\nbaboon"="Papio_anubis","Yellow\nbaboon"="Papio_cynocephalus","Kinda\nbaboon"="Papio_kindae", "Chacma\nbaboon"="Papio_ursinus","Guinea\nbaboon"="Papio_papio","Gelada"="Theropithecus_gelada")
+caps.groups$species<-factor(caps.groups$species, levels=c("Mandrill","Sanje\nmangabey", "Sooty\nmangabey","Gelada", "Gray-cheeked\nmangabey", "Hamadryas\baboon", "Olive\nbaboon","Guinea\nbaboon", "Yellow\nbaboon", "Chacma\nbaboon", "Kinda\nbaboon"))
+caps.groups$Cat.New<-as.factor(caps.groups$Cat.New)
+caps.groups$Cat.New
+
+plot1.dens<-ggplot() + 
+  labs(size="Observation hours\nper individidual") +
+  geom_quasirandom(data=caps.groups, aes(y=species,x=Density,size=Sqrt.Effort, color=Cat.New), alpha=0.35, width=0.2) +
+  scale_color_manual(values=pal1)+
+  ylab("") + xlab("Density") + theme(legend.position ="none") + xlim(0,1) +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+plot1.dens
+
+## PLOT MODULARITY ALONGSIDE PHYLOGENY
+plot1.mod<-ggplot() + 
+  labs(size="Observation hours\nper individidual") +
+  geom_quasirandom(data=caps.groups, aes(y=species,x=Modularity,size=Sqrt.Effort, color=Cat.New), alpha=0.35, width=0.2) +
+  scale_color_manual(values=pal1)+
+  ylab("") + xlab("Modularity") + theme(legend.position ="none") + xlim(0,1) +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+plot1.mod
+
+gg_tr+plot1.dens+plot1.mod
+
 ## DENSITY MODEL 1 -- CLASSIC SOCIAL CATEGORIES
-brm_density1<-brm(data=caps_groups, data2=list(A=A),
+brm_density1<-brm(data=caps.groups, data2=list(A=A),
                        N.Groomed|trials(N.Dyads) ~ sqrt(GroupSize) + Cat.Classic + scale(Obs.Effort.Per.Capita) +
                          (1|gr(phylo, cov=A)) +
-                         (1|species/population_id/group_id),
+                         (1|species/population_id/group_id/group.year),
                        prior = c(
                          prior(normal(0, 2), "b")),
                        family="beta_binomial", iter=4000, chains=4, cores=2,
-                       control=list(adapt_delta=0.95, max_treedepth=15))
+                       control=list(adapt_delta=0.99, max_treedepth=15))
 summary(brm_density1, prob=0.89)
 conditional_effects(brm_density1, "Cat.Classic")
 conditional_effects(brm_density1, "GroupSize:Cat.Classic")
 conditional_effects(brm_density1, "Obs.Effort.Per.Capita")
 
 ## DENSITY MODEL 2 -- NEW SOCIAL CATEGORIES
-brm_density2<-brm(data=caps_groups, data2=list(A=A),
+brm_density2<-brm(data=caps.groups, data2=list(A=A),
                        N.Groomed|trials(N.Dyads) ~ sqrt(GroupSize) + Cat.New + scale(Obs.Effort.Per.Capita) +
                          (1|gr(phylo, cov=A)) +
-                         (1|species/population_id/group_id),
+                         (1|species/population_id/group_id/group.year),
                        prior = c(
                          prior(normal(0, 2), "b")),
                        family="beta_binomial", iter=4000, chains=4, cores=2,
-                       control=list(adapt_delta=0.95, max_treedepth=15))
+                       control=list(adapt_delta=0.99, max_treedepth=15))
 summary(brm_density2, prob=0.89)
 conditional_effects(brm_density2, "Cat.New")
 conditional_effects(brm_density2, "GroupSize:Cat.New")
 
 ## DENSITY MODEL 3 -- GROUP SIZE ALONE
-brm_density3<-brm(data=caps_groups, data2=list(A=A),
+brm_density3<-brm(data=caps.groups, data2=list(A=A),
                        N.Groomed|trials(N.Dyads)  ~ sqrt(GroupSize) + scale(Obs.Effort.Per.Capita) +
                          (1|gr(phylo, cov=A)) +
-                         (1|species/population_id/group_id),
+                         (1|species/population_id/group_id/group.year),
                        prior = c(
                          prior(normal(0, 2), "b")),
                        family="beta_binomial", iter=4000, chains=4, cores=2,
-                       control=list(adapt_delta=0.95, max_treedepth=15))
+                       control=list(adapt_delta=0.99, max_treedepth=15))
 summary(brm_density3, prob=0.89)
 conditional_effects(brm_density3, "GroupSize")
 
@@ -89,61 +144,68 @@ loo1<-brms::loo(brm_density1, pointwise = T)
 loo2<-brms::loo(brm_density2, pointwise = T)
 loo3<-brms::loo(brm_density3, pointwise = T)
 loo_compare(loo1,loo2, loo3)
-model_weights(brm_density1, brm_density2, brm_density3, weights="stacking")
+waic(brm_density1)
+waic(brm_density2)
+waic(brm_density3)
+model_weights(brm_density1, brm_density2, brm_density3, weights="loo")
+
+as.data.frame(icc(brm_density3, by_group = T))
 
 ## MODULARITY MODEL 1 -- CLASSIC SOCIAL CATEGORIES
-caps_groups$Modularity[caps_groups$Modularity==0.01]<-0
-caps_groups$Cat.New<-factor(caps_groups$Cat.New, levels=c("Cohesive","Cliquish", "Multi-level"))
-brm_modularity1<-brm(data=caps_groups, data2=list(A=A),
+caps.groups$Cat.New<-factor(caps.groups$Cat.New, levels=c("Cohesive","Cliquish", "Multi-level"))
+brm_modularity1<-brm(data=caps.groups, data2=list(A=A),
                           Modularity ~ sqrt(GroupSize) + Cat.Classic + scale(Obs.Effort.Per.Capita) +
                             (1|gr(phylo, cov=A)) +  
-                            (1|species/population_id/group_id),
+                            (1|species/population_id/group_id/group.year),
                           prior = c(
                             prior(normal(0, 2), "b")),
                           family="zero_inflated_beta", iter=4000, chains=4, cores=2,
-                          control=list(adapt_delta=0.99, max_treedepth=10))
+                          control=list(adapt_delta=0.99, max_treedepth=15))
 summary(brm_modularity1, prob=0.89)
+conditional_effects(brm_modularity1, "Cat.Classic")
 
 ## MODULARITY MODEL 2 -- NEW SOCIAL CATEGORIES
-brm_modularity2<-brm(data=caps_groups, data2=list(A=A),
+brm_modularity2<-brm(data=caps.groups, data2=list(A=A),
                           Modularity ~ sqrt(GroupSize) + Cat.New + scale(Obs.Effort.Per.Capita) +
                             (1|gr(phylo, cov=A)) +  
-                            (1|species/population_id/group_id),
+                            (1|species/population_id/group_id/group.year),
                           prior = c(
                             prior(normal(0, 2), "b")),
                           family="zero_inflated_beta", iter=4000, chains=4, cores=2,
-                          control=list(adapt_delta=0.99, max_treedepth=10))
+                          control=list(adapt_delta=0.99, max_treedepth=15))
 summary(brm_modularity2,prob=0.89)
 conditional_effects(brm_modularity2, "Cat.New", prob=0.89)
 
 ## MODULARITY MODEL 3 -- GROUP SIZE ALONE
-brm_modularity3<-brm(data=caps_groups, data2=list(A=A),
+brm_modularity3<-brm(data=caps.groups, data2=list(A=A),
                           Modularity ~ sqrt(GroupSize) + scale(Obs.Effort.Per.Capita) +
                             (1|gr(phylo, cov=A)) +  
-                            (1|species/population_id/group_id),
+                            (1|species/population_id/group_id/group.year),
                           prior = c(
                             prior(normal(0, 2), "b")),
                           family="zero_inflated_beta", iter=4000, chains=4, cores=2,
-                          control=list(adapt_delta=0.99, max_treedepth=10))
+                          control=list(adapt_delta=0.99, max_treedepth=15))
 summary(brm_modularity3, prob=0.89)
+
+as.data.frame(icc(brm_modularity3, by_group = T))
 
 ## MODULARITY -- COMPARE THREE
 loo1<-brms::loo(brm_modularity1)
 loo2<-brms::loo(brm_modularity2)
 loo3<-brms::loo(brm_modularity3)
 loo_compare(loo1,loo2, loo3)
-model_weights(brm_modularity1,brm_modularity2,brm_modularity3, weights="stacking")
+model_weights(brm_modularity1,brm_modularity2,brm_modularity3, weights="loo")
 
 ## MAKE TIDY PLOTS
-grid = caps_groups %>%
-  data_grid(GroupSize=seq(min(caps_groups$GroupSize), max(caps_groups$GroupSize)), N.Dyads=1, Cat.Classic, Cat.New, Obs.Effort.Per.Capita=15)
+grid = caps.groups %>%
+  data_grid(GroupSize=seq(min(caps.groups$GroupSize), max(caps.groups$GroupSize)), N.Dyads=1, Cat.Classic, Cat.New, Obs.Effort.Per.Capita=15)
 
-min.SLS<-min(caps_groups$GroupSize[caps_groups$Cat.New=="Cohesive"])
-max.SLS<-max(caps_groups$GroupSize[caps_groups$Cat.New=="Cohesive"])
-min.MLS<-min(caps_groups$GroupSize[caps_groups$Cat.New=="Multi-level"])
-max.MLS<-max(caps_groups$GroupSize[caps_groups$Cat.New=="Multi-level"])
-min.SemiLS<-min(caps_groups$GroupSize[caps_groups$Cat.New=="Cliquish"])
-max.SemiLS<-max(caps_groups$GroupSize[caps_groups$Cat.New=="Cliquish"])
+min.SLS<-min(caps.groups$GroupSize[caps.groups$Cat.New=="Cohesive"])
+max.SLS<-max(caps.groups$GroupSize[caps.groups$Cat.New=="Cohesive"])
+min.MLS<-min(caps.groups$GroupSize[caps.groups$Cat.New=="Multi-level"])
+max.MLS<-max(caps.groups$GroupSize[caps.groups$Cat.New=="Multi-level"])
+min.SemiLS<-min(caps.groups$GroupSize[caps.groups$Cat.New=="Cliquish"])
+max.SemiLS<-max(caps.groups$GroupSize[caps.groups$Cat.New=="Cliquish"])
 grid<-grid[!(grid$Cat.New=="Cohesive" & grid$GroupSize>max.SLS),]
 grid<-grid[!(grid$Cat.New=="Multi-level" & grid$GroupSize<min.MLS),]
 grid<-grid[!(grid$Cat.New=="Cliquish" & grid$GroupSize<min.SemiLS),]
@@ -171,14 +233,13 @@ overall<-means %>%
 check$type.draw<-paste(check$Cat.Classic, check$.draw, sep="_")
 
 check$Cat.Classic<-factor(check$Cat.Classic, levels=c("Single-level","Multi-level"))
-caps_groups$Cat.Classic<-factor(caps_groups$Cat.Classic, levels=c("Single-level","Multi-level"))
+caps.groups$Cat.Classic<-factor(caps.groups$Cat.Classic, levels=c("Single-level","Multi-level"))
 
-branded_colors <- c("#4D759C","#9c68b3", "#66a182")
-branded_colors2<-c("#7373A4", "#66a182")
+
 plot2a<-ggplot() +  
-  scale_color_manual(values=branded_colors2) + labs(size="Observation hours\nper individidual") +
+  scale_color_manual(values=pal2) + labs(size="Observation hours\nper individidual") +
   geom_line(aes(y = Mean.Pred, x= GroupSize, group=type.draw, color=Cat.Classic), data = check, alpha = 0.1, lwd=1.2) +
-  geom_point(data=caps_groups, aes(y=Density,x=GroupSize,size=Sqrt.Effort, color=Cat.Classic), alpha=0.35) +
+  geom_point(data=caps.groups, aes(y=Density,x=GroupSize,size=Sqrt.Effort, color=Cat.Classic), alpha=0.35) +
   geom_line(aes(y = Mean.Pred, x= GroupSize, group=Cat.Classic), data = overall, alpha = 1, lwd=1.2, color = "black") +
   ylab("Density") + xlab("") + theme(legend.position ="none") + ylim(0,1) + xlim(0,80)
 plot2a
@@ -204,9 +265,9 @@ check$type.draw<-paste(check$Cat.New, check$.draw, sep="_")
 RColorBrewer::brewer.pal(8, "PRGn")
 
 plot2c<-ggplot() + 
-  scale_color_manual(values=branded_colors) + labs(size="Observation hours\nper individidual") +
+  scale_color_manual(values=pal1) + labs(size="Observation hours\nper individidual") +
   geom_line(aes(y = Mean.Pred, x= GroupSize, group=type.draw, color=Cat.New), data = check, alpha = 0.1, lwd=1.2) +
-  geom_point(data=caps_groups, aes(y=Modularity,x=GroupSize,size=Sqrt.Effort, color=Cat.New),alpha=0.35) +
+  geom_point(data=caps.groups, aes(y=Modularity,x=GroupSize,size=Sqrt.Effort, color=Cat.New),alpha=0.35) +
   geom_line(aes(y = Mean.Pred, x= GroupSize, group=Cat.New), data = overall, alpha = 1, lwd=1.2, color = "black") +
   ylab("Modularity") + xlab("Network size") + theme(legend.position ="none") + ylim(0,1) + xlim(0,80)
 plot2c
@@ -219,11 +280,10 @@ summary.range1<-range1 %>%
 
 summary.range1$Cat.Classic<-as.factor(summary.range1$Cat.Classic)
 summary.range1$Cat.Classic<-factor(summary.range1$Cat.Classic, levels=c("Single-level","Multi-level"))
-caps_groups$Cat.Classic<-factor(caps_groups$Cat.Classic, levels=c("Single-level","Multi-level"))
 
 plot2b<-ggplot() + 
-  scale_color_manual(values=branded_colors2) + labs(size="Observation hours\nper individidual") +
-  geom_quasirandom(data=caps_groups, aes(y=Density,x=Cat.Classic,size=Sqrt.Effort, color=Cat.Classic),alpha=0.35) +
+  scale_color_manual(values=pal2) + labs(size="Observation hours\nper individidual") +
+  geom_quasirandom(data=caps.groups, aes(y=Density,x=Cat.Classic,size=Sqrt.Effort, color=Cat.Classic),alpha=0.35) +
   geom_point(data=summary.range1,aes(x=Cat.Classic,y=Median)) +
   geom_errorbar(data=summary.range1,aes(x=Cat.Classic,ymin=LL,ymax=UL), width=0.08, lwd=1) +
   ylab("") + xlab("") + theme(legend.position ="none") + ylim(0,1)
@@ -235,8 +295,8 @@ summary.range2<-range2 %>%
   dplyr::summarise(Median=median(Mean.Pred), LL=quantile(Mean.Pred,0.055), UL=quantile(Mean.Pred,0.945), LL.75=quantile(Mean.Pred,0.125), UL.75=quantile(Mean.Pred,0.875))
 
 plot2d<-ggplot() + 
-  scale_color_manual(values=branded_colors) + labs(size="Observation hours\nper individidual") +
-  geom_quasirandom(data=caps_groups, aes(y=Modularity,x=Cat.New,size=Sqrt.Effort, color=Cat.New),alpha=0.35) +
+  scale_color_manual(values=pal1) + labs(size="Observation hours\nper individidual") +
+  geom_quasirandom(data=caps.groups, aes(y=Modularity,x=Cat.New,size=Sqrt.Effort, color=Cat.New),alpha=0.35) +
   geom_point(data=summary.range2,aes(x=Cat.New,y=Median)) +
   geom_errorbar(data=summary.range2,aes(x=Cat.New,ymin=LL,ymax=UL), width=0.08, lwd=1) +
   ylab("") + xlab("Social structure") + theme(legend.position ="none") + ylim(0,1)
@@ -256,14 +316,14 @@ ggsave(file="Figure_2.jpg", units="cm", width=20, height=16, dpi=300)
 ## FEMALE-FEMALE META-ANALYSES
 ## CLASSIC METHODS
 ## USING METAFOR
-caps_groups$Scale.Group<-as.numeric(scale(sqrt(caps_groups$GroupSize)))
+caps.groups$Scale.Group<-as.numeric(scale(sqrt(caps.groups$GroupSize)))
 
 ## KINSHIP
 meta1=rma.mv(yi=ff.kinship.r, V=ff.kinship.se^2, mods= ~ Cat.New + Philopatry + Scale.Group -1,
              random = list (~1|species/population_id/group_id/group.year,
                             ~1|phylo), method="REML",
              R=list(phylo=A),
-             data = caps_groups)
+             data = caps.groups)
 summary(meta1)
 
 ## RANK
@@ -271,37 +331,37 @@ meta2=rma.mv(yi=ff.rank.r, V=ff.rank.se^2, mods= ~ Cat.New + Philopatry + Scale.
              random = list (~1|species/population_id/group_id/group.year,
                             ~1|phylo), method="REML",
              R=list(phylo=A),
-             data = caps_groups)
+             data = caps.groups)
 summary(meta2)
 
 meta3=rma.mv(ff.male.r, V=ff.male.se^2, mods= ~ Cat.New + Philopatry + Scale.Group -1,
              random = list (~1|species/population_id/group_id/group.year,
                             ~1|phylo), method="REML",
              R=list(phylo=A),
-             data = caps_groups)
+             data = caps.groups)
 summary(meta3)
 
 meta4=rma.mv(ff.groomee.r, V=ff.groomee.se^2, mods= ~ Cat.New + Philopatry + Scale.Group-1,
              random = list (~1|species/group_id/group.year,
                             ~1|phylo), method="REML",
              R=list(phylo=A),
-             data = caps_groups)
+             data = caps.groups)
 summary(meta4)
 
 ## CLASSIC VISUALIZATIONS
 plot3a<-orchaRd::orchard_plot(meta1, mod = "Cat.New", group = "species", 
                               xlab = "Kinship effect", k=F,g=F,legend.pos="none", twig.size = 0)
-plot3a<-plot3a + ylim(-2,8) +scale_fill_manual(values=branded_colors) + scale_color_manual(values=branded_colors)
+plot3a<-plot3a + ylim(-2,8) +scale_fill_manual(values=pal1) + scale_color_manual(values=pal1)
 plot3a
 
 plot3b<-orchaRd::orchard_plot(meta2, mod = "Cat.New", group = "species", 
                               xlab = "Rank similarity effect",k=F,g=F, legend.pos="none",twig.size = 0)
-plot3b<-plot3b + scale_fill_manual(values=branded_colors) + scale_color_manual(values=branded_colors) + ylim(-1,4) 
+plot3b<-plot3b + scale_fill_manual(values=pal1) + scale_color_manual(values=pal1) + ylim(-1,4) 
 plot3b 
 
 plot3c<-orchaRd::orchard_plot(meta3, mod = "Cat.New", group = "species", 
                               xlab = "Shared male effect",k=F,g=F, twig.size=0, legend.pos="none")
-plot3c<-plot3c + scale_fill_manual(values=branded_colors) + scale_color_manual(values=branded_colors) + ylim(-2,8) 
+plot3c<-plot3c + scale_fill_manual(values=pal1) + scale_color_manual(values=pal1) + ylim(-2,8) 
 plot3c
 
 ## BAYESIAN
@@ -309,8 +369,8 @@ plot3c
 ## BRMS
 
 ## RELATEDNESS META-ANALYTIC MODEL
-caps_groups$Philopatry<-factor(caps_groups$Philopatry, levels=c("Female philopatric", "Female dispersal"))
-relatedness.meta<-brm(data = caps_groups, family = "student", data2=list(A=A),
+caps.groups$Philopatry<-factor(caps.groups$Philopatry, levels=c("Female philopatric", "Female dispersal"))
+relatedness.meta<-brm(data = caps.groups, family = "student", data2=list(A=A),
                       ff.kinship.r|se(ff.kinship.se) ~ 0 + Cat.New + scale(sqrt(GroupSize)) + Philopatry + (1|gr(phylo, cov=A)) +
                         (1|species/population_id/group_id/group.year),
                       prior = c(prior(normal(0, 2), class = b),
@@ -323,7 +383,7 @@ plot(conditional_effects(relatedness.meta, "GroupSize:Cat.New", prob=0.89))
 conditional_effects(relatedness.meta, "Cat.New:Philopatry", prob=0.89)
 
 ## RANK META-ANALYTIC MODEL
-rank.meta<-brm(data = caps_groups, family = "student", data2=list(A=A),
+rank.meta<-brm(data = caps.groups, family = "student", data2=list(A=A),
                ff.rank.r| se(ff.rank.se) ~  0 + Cat.New + scale(sqrt(GroupSize)) + Philopatry + (1|gr(phylo, cov=A)) +
                  (1|species/population_id/group_id/group.year),
                prior = c(prior(normal(0, 2), class = b),
@@ -335,7 +395,7 @@ conditional_effects(rank.meta, "Cat.New", prob=0.89)
 conditional_effects(rank.meta, "GroupSize", prob=0.89)
 
 ## GROOMEEE RANK META-ANALYTIC MODEL
-groomee.meta<-brm(data = caps_groups, family = "student", data2=list(A=A),
+groomee.meta<-brm(data = caps.groups, family = "student", data2=list(A=A),
                   ff.groomee.r| se(ff.groomee.se) ~  0 + Cat.New + scale(sqrt(GroupSize)) + Philopatry + (1|gr(phylo, cov=A)) +
                     (1|species/population_id/group_id/group.year),
                   prior = c(prior(normal(0, 2), class = b),
@@ -349,7 +409,7 @@ conditional_effects(groomee.meta, "GroupSize:Cat.New")
 conditional_effects(groomee.meta, "Cat.New:Philopatry")
 
 ## SHARED MALE META-ANALYTIC MODEL
-male.meta<-brm(data = caps_groups, family = "student", data2=list(A=A),
+male.meta<-brm(data = caps.groups, family = "student", data2=list(A=A),
                ff.male.r|se(ff.male.se) ~  0 + Cat.New + scale(sqrt(GroupSize)) + Philopatry + (1|gr(phylo, cov=A)) +
                  (1|species/population_id/group_id/group.year),
                prior = c(prior(normal(0, 2), class = b),
@@ -371,28 +431,28 @@ meta5=rma.mv(yi=fm.rank.male.r, V=fm.rank.male.se^2, mods= ~ Cat.New + Scale.Gro
              random = list(~1|species/population_id/group_id,
                            ~1|phylo), method="REML",
              R=list(phylo=A),
-             data = caps_groups)
+             data = caps.groups)
 summary(meta5)
 
 meta6=rma.mv(fm.rank.fem.r, V=fm.rank.fem.se^2, mods= ~ Cat.New + Scale.Group - 1,
              random = list (~1|species/population_id/group_id/group.year,
                             ~1|phylo),
              R=list(phylo=A),
-             data = caps_groups)
+             data = caps.groups)
 summary(meta6)
 
 meta7=rma.mv(fm.rank.intx.r, V=fm.rank.intx.se^2, mods= ~ Cat.New + Scale.Group - 1 ,
              random = list (~1|species/population_id/group_id,
                             ~1|phylo),
              R=list(phylo=A),
-             data = caps_groups)
+             data = caps.groups)
 summary(meta7)
 
 meta8=rma.mv(fm.sex.r, V=fm.sex.se^2, mods= ~ Cat.New + Scale.Group - 1,
              random = list (~1|species/population_id/group_id/group.year,
                             ~1|phylo),
              R=list(phylo=A),
-             data = caps_groups)
+             data = caps.groups)
 summary(meta8)
 
 ## PLOT IT
@@ -400,18 +460,18 @@ model_results <- orchaRd::mod_results(meta5, mod = "Cat.New", at = NULL, group =
 plot3d<-orchaRd::orchard_plot(meta5, mod = "Cat.New", group = "species", twig.size=0, 
                               xlab = "Male rank effect", k=F,g=F, legend.pos="none")
 
-plot3d<-plot3d+scale_fill_manual(values=branded_colors) + scale_color_manual(values=branded_colors) + ylim(-1,4)
+plot3d<-plot3d+scale_fill_manual(values=pal1) + scale_color_manual(values=pal1) + ylim(-1,4)
 plot3d
 plot3e<-orchaRd::orchard_plot(meta6, mod = "Cat.New", group = "species", twig.size=0,
                               xlab = "Female rank effect",k=F,g=F, legend.pos="none")
 
-plot3e<-plot3e+scale_fill_manual(values=branded_colors) + scale_color_manual(values=branded_colors) + ylim(-1,4)
+plot3e<-plot3e+scale_fill_manual(values=pal1) + scale_color_manual(values=pal1) + ylim(-1,4)
 plot3e
 
 plot3f<-orchaRd::orchard_plot(meta7, mod = "Cat.New", group = "species", twig.size = 0,
                               xlab = "Rank interaction effect",k=F,g=F, legend.pos="none")
 
-plot3f<-plot3f+scale_fill_manual(values=branded_colors) + scale_color_manual(values=branded_colors) + ylim(-1,4)
+plot3f<-plot3f+scale_fill_manual(values=pal1) + scale_color_manual(values=pal1) + ylim(-1,4)
 plot3f
 
 layout1<-"AD
@@ -424,7 +484,7 @@ plot3a+plot3b+plot3c+plot3d+plot3e+plot3f + plot_annotation(tag_levels = "a") + 
 ggsave(file="Figure_S6.jpg", units="cm", width=22, height=22, dpi=300)
 
 ## MALE RANK FM META-ANALYTIC MODEL
-male.effect.fm<-brm(data = caps_groups, data2=list(A=A),
+male.effect.fm<-brm(data = caps.groups, data2=list(A=A),
                     fm.rank.male.r|se(fm.rank.male.se) ~ 0 + Cat.New + scale(sqrt(GroupSize)) + (1|gr(phylo, cov=A)) +
                       (1|species/population_id/group_id/group.year),
                     prior = c(prior(normal(0, 2), class = b),
@@ -436,8 +496,8 @@ summary(male.effect.fm, prob=0.89)
 plot(conditional_effects(male.effect.fm, "Cat.New", prob=0.89), points=T)
 
 ## FEMALE RANK FM META-ANALYTIC MODEL
-caps_groups$ASR<-caps_groups$N.Fem/caps_groups$N.Male
-fem.effect.fm<-brm(data = caps_groups, family = student, data2=list(A=A),
+caps.groups$ASR<-caps.groups$N.Fem/caps.groups$N.Male
+fem.effect.fm<-brm(data = caps.groups, family = student, data2=list(A=A),
                    fm.rank.fem.r| se(fm.rank.fem.se) ~  0 + Cat.New + scale(sqrt(GroupSize)) + (1|gr(phylo, cov=A)) +
                      (1|species/population_id/group_id/group.year),
                    prior = c(prior(normal(0, 2), class = b),
@@ -449,7 +509,7 @@ conditional_effects(fem.effect.fm, "Cat.New", prob=0.89)
 conditional_effects(fem.effect.fm, "GroupSize", prob=0.89)
 
 ## INTERACTION RANK FM META-ANALYTIC MODEL
-intx.effect.fm<-brm(data = caps_groups, family = student, data2=list(A=A),
+intx.effect.fm<-brm(data = caps.groups, family = student, data2=list(A=A),
                     fm.rank.intx.r|se(fm.rank.intx.se) ~ 0 + Cat.New + scale(sqrt(GroupSize)) + (1|gr(phylo, cov=A)) +
                       (1|species/population_id/group_id/group.year),
                     prior = c(prior(normal(0, 2), class = b),
@@ -461,7 +521,7 @@ conditional_effects(intx.effect.fm, "Cat.New", prob=0.89)
 conditional_effects(intx.effect.fm, "GroupSize")
 
 ## SEX EFFECT
-sex.effect.fm<-brm(data = caps_groups, family = student, data2=list(A=A),
+sex.effect.fm<-brm(data = caps.groups, family = student, data2=list(A=A),
                    fm.sex.r| se(fm.sex.se) ~  0 + Cat.New +  scale(sqrt(GroupSize)) + (1|gr(phylo, cov=A)) +
                      (1|species/population_id/group_id/group.year),
                    prior = c(prior(normal(0, 2), class = b),
@@ -489,9 +549,9 @@ effects.intx2<-effects.intx2[!(effects.intx2$Cat.New=="Cohesive" & effects.intx2
 ## CATEGORY PLOTS
 library(ggbeeswarm)
 plot3a<-ggplot() + 
-  geom_quasirandom(data=caps_groups, aes(x=Cat.New,y=ff.kinship.r, size=1/(ff.kinship.se), color=Cat.New, shape=Philopatry), alpha=0.5) + 
+  geom_quasirandom(data=caps.groups, aes(x=Cat.New,y=ff.kinship.r, size=1/(ff.kinship.se), color=Cat.New, shape=Philopatry), alpha=0.5) + 
   scale_size(range=c(1,4)) +
-  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=branded_colors) +
+  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=pal1) +
   geom_point(data=effects.intx, aes(x=Cat.New, y=estimate__,shape=Philopatry),
              position=position_dodge(width=0.5), size=3) +
   geom_errorbar(data=effects.intx, aes(x=Cat.New, group=Philopatry,ymin=lower__, ymax=upper__), 
@@ -501,25 +561,25 @@ plot3a<-ggplot() +
   scale_y_continuous(limits=c(-2,6), breaks=seq(-2,6, by=2)) + coord_flip()
 
 plot3b<-ggplot() + 
-  geom_quasirandom(data=caps_groups, aes(x=Cat.New,y=ff.rank.r, size=1/(ff.rank.se), color=Cat.New,shape=Philopatry), alpha=0.5) + 
+  geom_quasirandom(data=caps.groups, aes(x=Cat.New,y=ff.rank.r, size=1/(ff.rank.se), color=Cat.New,shape=Philopatry), alpha=0.5) + 
   scale_size(range=c(1,4)) +
-  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=branded_colors) +
+  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=pal1) +
   geom_point(data=effects2, aes(x=Cat.New, y=estimate__), size = 3) +
   geom_errorbar(data=effects2, aes(x=Cat.New, ymax=lower__, ymin=upper__), width=0, lwd=1) +
   xlab("") + ylab("Rank similarity effect") + theme(legend.position="none") + ylim(-1,3) + coord_flip()
 
 plot.groomee<-ggplot() + 
-  geom_quasirandom(data=caps_groups, aes(x=Cat.New,y=ff.groomee.r, size=1/(ff.groomee.se), color=Cat.New,shape=Philopatry), alpha=0.5) + 
+  geom_quasirandom(data=caps.groups, aes(x=Cat.New,y=ff.groomee.r, size=1/(ff.groomee.se), color=Cat.New,shape=Philopatry), alpha=0.5) + 
   scale_size(range=c(1,4)) +
-  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=branded_colors) +
+  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=pal1) +
   geom_point(data=effects4, aes(x=Cat.New, y=estimate__),size = 3) +
   geom_errorbar(data=effects4, aes(x=Cat.New, ymax=lower__, ymin=upper__), width=0, lwd=1) +
   xlab("") + ylab("Partner rank effect") + theme(legend.position="none") + ylim(-1,3) + coord_flip()
 
 plot3c<-ggplot() + 
-  geom_quasirandom(data=caps_groups, aes(x=Cat.New,y=ff.male.r, size=1/(ff.male.se), color=Cat.New,shape=Philopatry), alpha=0.5) + 
+  geom_quasirandom(data=caps.groups, aes(x=Cat.New,y=ff.male.r, size=1/(ff.male.se), color=Cat.New,shape=Philopatry), alpha=0.5) + 
   scale_size(range=c(1,4)) +
-  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=branded_colors) +
+  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=pal1) +
   geom_point(data=effects3, aes(x=Cat.New, y=estimate__), size=3) +
   geom_errorbar(data=effects3, aes(x=Cat.New, ymin=lower__, ymax=upper__), width=0, lwd=1) +
   xlab("") + ylab("Shared male effect") + theme(legend.position="none") + 
@@ -532,9 +592,9 @@ effects3<-as.data.frame(conditional_effects(intx.effect.fm, "Cat.New", prob=0.89
 effects4<-as.data.frame(conditional_effects(sex.effect.fm, "Cat.New", prob=0.89)$Cat.New)
 
 plot3d<-ggplot() + 
-  geom_quasirandom(data=caps_groups, aes(x=Cat.New,y=fm.rank.male.r, size=1/(fm.rank.male.se), color=Cat.New,shape=Philopatry), stroke=0, alpha=0.5) + 
+  geom_quasirandom(data=caps.groups, aes(x=Cat.New,y=fm.rank.male.r, size=1/(fm.rank.male.se), color=Cat.New,shape=Philopatry), stroke=0, alpha=0.5) + 
   scale_size(range=c(1,4)) +
-  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=branded_colors) +
+  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=pal1) +
   geom_point(data=effects1, aes(x=Cat.New, y=estimate__), size=3) + 
   geom_errorbar(data=effects1, aes(x=Cat.New, ymin=lower__, ymax=upper__), width=0, lwd=1) +
   ggtitle("Female-male dyads") + ylim(-1,3) +
@@ -545,8 +605,8 @@ plot3d<-ggplot() +
 plot3d
 
 plot3e<-ggplot() +
-  geom_quasirandom(data=caps_groups, aes(x=Cat.New,y=fm.rank.fem.r, size=1/(fm.rank.fem.se),shape=Philopatry, color=Cat.New), stroke=0, alpha=0.5) + 
-  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=branded_colors) +
+  geom_quasirandom(data=caps.groups, aes(x=Cat.New,y=fm.rank.fem.r, size=1/(fm.rank.fem.se),shape=Philopatry, color=Cat.New), stroke=0, alpha=0.5) + 
+  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=pal1) +
   scale_size(range=c(1,4)) +
   geom_point(data=effects2, aes(x=Cat.New, y=estimate__), size=3) +
   geom_errorbar(data=effects2, aes(x=Cat.New, ymin=lower__, ymax=upper__), width=0, lwd=1) +
@@ -556,9 +616,9 @@ plot3e<-ggplot() +
   xlab("") + ylab("Female rank effect") + theme(legend.position="none") + ylim(-1,3) + coord_flip()
 
 plot3f<-ggplot() + 
-  geom_quasirandom(data=caps_groups, aes(x=Cat.New,y=fm.rank.intx.r, shape=Philopatry,size=1/(fm.rank.intx.se), color=Cat.New), stroke=0, alpha=0.5) + 
+  geom_quasirandom(data=caps.groups, aes(x=Cat.New,y=fm.rank.intx.r, shape=Philopatry,size=1/(fm.rank.intx.se), color=Cat.New), stroke=0, alpha=0.5) + 
   scale_size(range=c(1,4)) +
-  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=branded_colors) +
+  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=pal1) +
   geom_point(data=effects3, aes(x=Cat.New, y=estimate__), size=3) +
   geom_errorbar(data=effects3, aes(x=Cat.New, ymin=lower__, ymax=upper__), width=0, lwd=1) +
   theme(axis.title.y =element_blank(),
@@ -567,9 +627,9 @@ plot3f<-ggplot() +
   xlab("") + ylab("Rank interaction effect") + theme(legend.position="none") + ylim(-1,3) + coord_flip()
 
 plot.sex<-ggplot() + 
-  geom_quasirandom(data=caps_groups, aes(x=Cat.New,y=-fm.sex.r, size=(1/fm.sex.se),shape=Philopatry, color=Cat.New), alpha=0.5) + 
+  geom_quasirandom(data=caps.groups, aes(x=Cat.New,y=-fm.sex.r, size=(1/fm.sex.se),shape=Philopatry, color=Cat.New), alpha=0.5) + 
   scale_size(range=c(1,4)) +
-  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=branded_colors) +
+  geom_hline(yintercept=0, lty=2) + scale_color_manual(values=pal1) +
   geom_point(data=effects4, aes(x=Cat.New, y=-estimate__)) +
   geom_errorbar(data=effects4, aes(x=Cat.New, ymin=-upper__, ymax=-lower__), width=0, lwd=1) +
   theme(axis.title.y =element_blank(),
@@ -589,7 +649,7 @@ ggsave(file="Figure_3.jpg", units="cm", width=25, height=25, dpi=300)
 
 ## DYADIC BIASES AND NETWORK DENSITY
 ## FF EFFECTS
-brm_density_phylo_eff<-brm(data=caps_groups, data2=list(A=A),
+brm_density_phylo_eff<-brm(data=caps.groups, data2=list(A=A),
                            N.Groomed|trials(N.Dyads) ~ Cat.Classic + sqrt(GroupSize) + me(ff.kinship.r, ff.kinship.se) + me(ff.rank.r,ff.rank.se) + me(ff.groomee.r,ff.groomee.se) + me(ff.male.r,ff.male.se)  + 
                              scale(Obs.Effort.Per.Capita) +
                              (1|gr(phylo, cov=A)) +
@@ -614,8 +674,9 @@ ggsave(file="Figure_S2.jpg", units="cm", width=28, height=10, dpi=300)
 
 ## DYADIC BIASES AND NETWORK MODULARITY
 ## FF EFFECTS
-brm_modularity_phylo_eff<-brm(data=caps_groups, data2=list(A=A),
-                              Modularity ~  scale(sqrt(GroupSize)) + Cat.Classic + me(ff.kinship.r, ff.kinship.se) + me(ff.groomee.r, ff.groomee.se) + me(ff.rank.r,ff.rank.se) + me(ff.male.r,ff.male.se) + scale(Obs.Effort.Per.Capita) +
+brm_modularity_phylo_eff<-brm(data=caps.groups, data2=list(A=A),
+                              Modularity ~ scale(sqrt(GroupSize)) + Cat.Classic + me(ff.kinship.r, ff.kinship.se) + me(ff.groomee.r, ff.groomee.se) + me(ff.rank.r,ff.rank.se) + me(ff.male.r,ff.male.se) + 
+                                scale(Obs.Effort.Per.Capita) +
                                 (1|gr(phylo, cov=A)) +  
                                 (1|species/population_id/group_id),
                               prior = c(
@@ -629,63 +690,63 @@ plot4<-conditional_effects(brm_modularity_phylo_eff, "ff.male.r:Cat.Classic", pr
 plot1<-conditional_effects(brm_modularity_phylo_eff, "ff.kinship.r:Cat.Classic", prob = 0.89)
 
 plot.related<-plot(plot1,plot = FALSE, prob=0.89, line_args = list(color="black"))[[1]] + ylim(0,1) + xlab("Kinship effect")
-plot.related<-plot.related + geom_point(data=caps_groups, aes(x=ff.kinship.r, y=Modularity, color=Cat.Classic, size=(1/related.se)), inherit.aes = F, alpha=0.7) +
-  scale_color_manual(values=branded_colors2) + scale_fill_manual(values=branded_colors2) + theme(legend.position = "none") + xlim(-1,6) + scale_size(range=c(1,4)) 
+plot.related<-plot.related + geom_point(data=caps.groups, aes(x=ff.kinship.r, y=Modularity, color=Cat.Classic, size=(1/related.se)), inherit.aes = F, alpha=0.7) +
+  scale_color_manual(values=pal2) + scale_fill_manual(values=pal2) + theme(legend.position = "none") + xlim(-1,6) + scale_size(range=c(1,4)) 
 plot.rank<-plot(plot2, plot = FALSE, prob=0.89, line_args = list(color="black"))[[1]] + ylim(0,1) + xlab("Rank similarity effect") + ylab("")
-plot.rank<-plot.rank + geom_point(data=caps_groups, aes(x=ff.rank.r, y=Modularity, color=Cat.Classic, size=(1/rank.se)), inherit.aes = F, alpha=0.7) +
-  scale_color_manual(values=branded_colors2) + scale_fill_manual(values=branded_colors2) + theme(legend.position = "none") + scale_size(range=c(1,4)) 
+plot.rank<-plot.rank + geom_point(data=caps.groups, aes(x=ff.rank.r, y=Modularity, color=Cat.Classic, size=(1/rank.se)), inherit.aes = F, alpha=0.7) +
+  scale_color_manual(values=pal2) + scale_fill_manual(values=pal2) + theme(legend.position = "none") + scale_size(range=c(1,4)) 
 plot.groomee<-plot(plot3, plot = FALSE, prob=0.89, line_args = list(color="black"))[[1]] + ylim(0,1) + xlab("Partner rank effect") + ylab("")
-plot.groomee<-plot.groomee + geom_point(data=caps_groups, aes(x=ff.groomee.r, y=Modularity, color=Cat.Classic, size=(1/groomee.se)), inherit.aes = F, alpha=0.7) +
-  scale_color_manual(values=branded_colors2) + scale_fill_manual(values=branded_colors2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) 
+plot.groomee<-plot.groomee + geom_point(data=caps.groups, aes(x=ff.groomee.r, y=Modularity, color=Cat.Classic, size=(1/groomee.se)), inherit.aes = F, alpha=0.7) +
+  scale_color_manual(values=pal2) + scale_fill_manual(values=pal2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) 
 plot.male<-plot(plot4, plot = FALSE, prob=0.89, line_args = list(color="black"))[[1]] + ylim(0,1) + xlab("Shared male effect") + ylab("")
-plot.male<-plot.male + geom_point(data=caps_groups, aes(x=ff.male.r, y=Modularity, color=Cat.Classic, size=(1/male.se)), inherit.aes = F, alpha=0.7) +
-  scale_color_manual(values=branded_colors2) + scale_fill_manual(values=branded_colors2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) 
+plot.male<-plot.male + geom_point(data=caps.groups, aes(x=ff.male.r, y=Modularity, color=Cat.Classic, size=(1/male.se)), inherit.aes = F, alpha=0.7) +
+  scale_color_manual(values=pal2) + scale_fill_manual(values=pal2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) 
 
 ## RELATED PLOT TRUNCATED
 plot.related<-plot.related$data
-related.min.ML<-min(caps_groups$ff.kinship.r[caps_groups$Cat.Classic=="Multi-level"], na.rm = T)
-related.min.SL<-min(caps_groups$ff.kinship.r[caps_groups$Cat.Classic=="Single-level"], na.rm=T)
-related.max.ML<-max(caps_groups$ff.kinship.r[caps_groups$Cat.Classic=="Multi-level"], na.rm = T)
-related.max.SL<-max(caps_groups$ff.kinship.r[caps_groups$Cat.Classic=="Single-level"],na.rm=T)
+related.min.ML<-min(caps.groups$ff.kinship.r[caps.groups$Cat.Classic=="Multi-level"], na.rm = T)
+related.min.SL<-min(caps.groups$ff.kinship.r[caps.groups$Cat.Classic=="Single-level"], na.rm=T)
+related.max.ML<-max(caps.groups$ff.kinship.r[caps.groups$Cat.Classic=="Multi-level"], na.rm = T)
+related.max.SL<-max(caps.groups$ff.kinship.r[caps.groups$Cat.Classic=="Single-level"],na.rm=T)
 plot.related<-plot.related[!(plot.related$ff.kinship.r>related.max.SL & plot.related$Cat.Classic=="Single-level"),]
 plot.related<-plot.related[!(plot.related$ff.kinship.r<related.min.SL & plot.related$Cat.Classic=="Single-level"),]
 plot.related<-plot.related[!(plot.related$ff.kinship.r>related.max.ML & plot.related$Cat.Classic=="Multi-level"),]
 plot.related<-plot.related[!(plot.related$ff.kinship.r<related.min.ML & plot.related$Cat.Classic=="Multi-level"),]
 
-plot.related<-ggplot() + geom_point(data=caps_groups, aes(x=ff.kinship.r, y=Modularity,size=(1/ff.kinship.se), color=Cat.Classic, alpha=0.7)) +
-  scale_color_manual(values=branded_colors2) + scale_fill_manual(values=branded_colors2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) +
+plot.related<-ggplot() + geom_point(data=caps.groups, aes(x=ff.kinship.r, y=Modularity,size=(1/ff.kinship.se), color=Cat.Classic, alpha=0.7)) +
+  scale_color_manual(values=pal2) + scale_fill_manual(values=pal2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) +
   geom_ribbon(data=plot.related, aes(x=ff.kinship.r, ymin=lower__, ymax=upper__, fill=Cat.Classic, alpha=0.7)) + ylim(0,1) + xlab("Kinship effect") + ylab("Modularity") +
   geom_line(data=plot.related, aes(x=ff.kinship.r, y=estimate__, group=Cat.Classic, alpha=0.7)) 
 
 ## RANK PLOT TRUNCATED
 plot.rank<-plot.rank$data
-rank.min.ML<-min(caps_groups$ff.rank.r[caps_groups$Cat.Classic=="Multi-level"],na.rm=T)
-rank.min.SL<-min(caps_groups$ff.rank.r[caps_groups$Cat.Classic=="Single-level"],na.rm=T)
-rank.max.ML<-max(caps_groups$ff.rank.r[caps_groups$Cat.Classic=="Multi-level"],na.rm=T)
-rank.max.SL<-max(caps_groups$ff.rank.r[caps_groups$Cat.Classic=="Single-level"],na.rm=T)
+rank.min.ML<-min(caps.groups$ff.rank.r[caps.groups$Cat.Classic=="Multi-level"],na.rm=T)
+rank.min.SL<-min(caps.groups$ff.rank.r[caps.groups$Cat.Classic=="Single-level"],na.rm=T)
+rank.max.ML<-max(caps.groups$ff.rank.r[caps.groups$Cat.Classic=="Multi-level"],na.rm=T)
+rank.max.SL<-max(caps.groups$ff.rank.r[caps.groups$Cat.Classic=="Single-level"],na.rm=T)
 plot.rank<-plot.rank[!(plot.rank$ff.rank.r>rank.max.SL & plot.rank$Cat.Classic=="Single-level"),]
 plot.rank<-plot.rank[!(plot.rank$ff.rank.r<rank.min.SL & plot.rank$Cat.Classic=="Single-level"),]
 plot.rank<-plot.rank[!(plot.rank$ff.rank.r>rank.max.ML & plot.rank$Cat.Classic=="Multi-level"),]
 plot.rank<-plot.rank[!(plot.rank$ff.rank.r<rank.min.ML & plot.rank$Cat.Classic=="Multi-level"),]
 
-plot.rank<-ggplot() + geom_point(data=caps_groups, aes(x=ff.rank.r, y=Modularity,size=(1/ff.rank.se), color=Cat.Classic, alpha=0.7)) +
-  scale_color_manual(values=branded_colors2) + scale_fill_manual(values=branded_colors2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) +
+plot.rank<-ggplot() + geom_point(data=caps.groups, aes(x=ff.rank.r, y=Modularity,size=(1/ff.rank.se), color=Cat.Classic, alpha=0.7)) +
+  scale_color_manual(values=pal2) + scale_fill_manual(values=pal2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) +
   geom_ribbon(data=plot.rank, aes(x=ff.rank.r, ymin=lower__, ymax=upper__, fill=Cat.Classic, alpha=0.7)) + ylim(0,1) + xlab("Rank similarity effect") + ylab("") +
   geom_line(data=plot.rank, aes(x=ff.rank.r, y=estimate__, group=Cat.Classic, alpha=0.7)) 
 
 ## MALE PLOT TRUNCATED
 plot.male<-plot.male$data
-male.min.ML<-min(caps_groups$ff.male.r[caps_groups$Cat.Classic=="Multi-level"], na.rm=T)
-male.min.SL<-min(caps_groups$ff.male.r[caps_groups$Cat.Classic=="Single-level"], na.rm=T)
-male.max.ML<-max(caps_groups$ff.male.r[caps_groups$Cat.Classic=="Multi-level"], na.rm=T)
-male.max.SL<-max(caps_groups$ff.male.r[caps_groups$Cat.Classic=="Single-level"], na.rm=T)
+male.min.ML<-min(caps.groups$ff.male.r[caps.groups$Cat.Classic=="Multi-level"], na.rm=T)
+male.min.SL<-min(caps.groups$ff.male.r[caps.groups$Cat.Classic=="Single-level"], na.rm=T)
+male.max.ML<-max(caps.groups$ff.male.r[caps.groups$Cat.Classic=="Multi-level"], na.rm=T)
+male.max.SL<-max(caps.groups$ff.male.r[caps.groups$Cat.Classic=="Single-level"], na.rm=T)
 plot.male<-plot.male[!(plot.male$ff.male.r>male.max.SL & plot.male$Cat.Classic=="Single-level"),]
 plot.male<-plot.male[!(plot.male$ff.male.r<male.min.SL & plot.male$Cat.Classic=="Single-level"),]
 plot.male<-plot.male[!(plot.male$ff.male.r>male.max.ML & plot.male$Cat.Classic=="Multi-level"),]
 plot.male<-plot.male[!(plot.male$ff.male.r<male.min.ML & plot.male$Cat.Classic=="Multi-level"),]
 
-plot.male<-ggplot() + geom_point(data=caps_groups, aes(x=ff.male.r, y=Modularity,size=(1/ff.male.se), color=Cat.Classic, alpha=0.7)) +
-  scale_color_manual(values=branded_colors2) + scale_fill_manual(values=branded_colors2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) +
+plot.male<-ggplot() + geom_point(data=caps.groups, aes(x=ff.male.r, y=Modularity,size=(1/ff.male.se), color=Cat.Classic, alpha=0.7)) +
+  scale_color_manual(values=pal2) + scale_fill_manual(values=pal2) + theme(legend.position = "none") +  scale_size(range=c(1,4)) +
   geom_ribbon(data=plot.male, aes(x=ff.male.r, ymin=lower__, ymax=upper__, fill=Cat.Classic, alpha=0.7)) + ylim(0,1) + xlab("Shared male effect") + ylab("") +
   geom_line(data=plot.male, aes(x=ff.male.r, y=estimate__, group=Cat.Classic, alpha=0.7))
 
@@ -694,7 +755,7 @@ ggsave(file="Figure_4.jpg", units="cm", width=27, height=9, dpi=300)
 
 ## DYADIC BIASES AND NETWORK DENSITY
 ## FM EFFECTS
-brm_density_phylo_eff2<-brm(data=caps_groups, data2=list(A=A),
+brm_density_phylo_eff2<-brm(data=caps.groups, data2=list(A=A),
                             N.Groomed|trials(N.Dyads) ~ Cat.Classic + sqrt(GroupSize) + me(fm.rank.fem.r, fm.rank.fem.se) + me(fm.rank.male.r, fm.rank.male.se) + me(fm.rank.intx.r, fm.rank.intx.se) +
                               me(fm.sex.r, fm.sex.se) + scale(Obs.Effort.Per.Capita) +
                               (1|gr(phylo, cov=A)) +  
@@ -707,7 +768,7 @@ summary(brm_density_phylo_eff2)
 
 ## DYADIC BIASES AND NETWORK MODULARITY
 ## FM EFFECTS
-brm_modularity_phylo_eff2<-brm(data=caps_groups, data2=list(A=A),
+brm_modularity_phylo_eff2<-brm(data=caps.groups, data2=list(A=A),
                                Modularity ~ Cat.Classic + sqrt(GroupSize) + me(fm.rank.fem.r, fm.rank.fem.se) + me(fm.rank.male.r, fm.rank.male.se) + me(fm.rank.intx.r, fm.rank.intx.se) +
                                  me(fm.sex.r, fm.sex.se) + scale(Obs.Effort.Per.Capita) +
                                  (1|gr(phylo, cov=A)) +  
@@ -760,6 +821,38 @@ phylo.plot2<-ggplot(data=phylo.ests2, aes(x=Effect, y=ICC,fill=Group)) + geom_co
 
 layout1<-"AAAA
           BBBB"
+
 phylo.plot1+phylo.plot2 + plot_annotation(tag_levels = "a") + plot_layout(design = layout1)
 ggsave(file="Figure_S3.jpg", units="cm", width=20, height=25, dpi=300)
+
+
+## PRINT MODEL OUTPUTS
+sink("CAPS_models.txt")
+summary(brm_density1, prob=0.89)
+summary(brm_density2, prob=0.89)
+summary(brm_density3, prob=0.89)
+summary(brm_modularity1, prob=0.89)
+summary(brm_modularity2, prob=0.89)
+summary(brm_modularity3, prob=0.89)
+summary(relatedness.meta, prob=0.89)
+summary(rank.meta, prob=0.89)
+summary(groomee.meta, prob=0.89)
+summary(male.meta, prob=0.89)
+summary(brm_density_phylo_eff, prob=0.89)
+summary(brm_modularity_phylo_eff, prob=0.89)
+summary(male.effect.fm, prob=0.89)
+summary(fem.effect.fm, prob=0.89)
+summary(intx.effect.fm, prob=0.89)
+summary(sex.effect.fm, prob=0.89)
+summary(brm_density_phylo_eff2, prob=0.89)
+summary(brm_modularity_phylo_eff2, prob=0.89)
+summary(meta1)
+summary(meta2)
+summary(meta3)
+summary(meta4)
+summary(meta5)
+summary(meta6)
+summary(meta7)
+summary(meta8)
+sink()
 
