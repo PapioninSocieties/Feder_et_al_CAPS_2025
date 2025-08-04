@@ -682,7 +682,7 @@ brm_modularity_phylo_eff<-brm(data=caps.groups, data2=list(A=A),
                               prior = c(
                                 prior(normal(0, 2), "b")),
                               family="zero_inflated_beta", iter=4000, chains=4, cores=2,
-                              control=list(adapt_delta=0.99, max_treedepth=12))
+                              control=list(adapt_delta=0.99, max_treedepth=15))
 summary(brm_modularity_phylo_eff, prob=0.89)
 plot2<-conditional_effects(brm_modularity_phylo_eff, "ff.rank.r:Cat.Classic", prob=0.89)
 plot3<-conditional_effects(brm_modularity_phylo_eff, "ff.groomee.r:Cat.Classic", prob=0.89)
@@ -763,7 +763,7 @@ brm_density_phylo_eff2<-brm(data=caps.groups, data2=list(A=A),
                             prior = c(
                               prior(normal(0, 2), "b")),
                             family="beta_binomial", iter=4000, chains=4, cores=2,
-                            control=list(adapt_delta=0.99, max_treedepth=12))
+                            control=list(adapt_delta=0.99, max_treedepth=15))
 summary(brm_density_phylo_eff2)
 
 ## DYADIC BIASES AND NETWORK MODULARITY
@@ -776,7 +776,7 @@ brm_modularity_phylo_eff2<-brm(data=caps.groups, data2=list(A=A),
                                prior = c(
                                  prior(normal(0, 2), "b")),
                                family="zero_inflated_beta", iter=4000, chains=4, cores=2,
-                               control=list(adapt_delta=0.99, max_treedepth=12))
+                               control=list(adapt_delta=0.99, max_treedepth=15))
 summary(brm_modularity_phylo_eff2)
 
 ## GET INTRACLASS CORRELATIONS
