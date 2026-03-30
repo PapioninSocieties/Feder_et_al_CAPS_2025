@@ -407,9 +407,9 @@ data.by.group$Species<-factor(data.by.group$Species,levels =c("Lophocebus_albige
                                                               "Papio_anubis", "Papio_cynocephalus",  
                                                               "Papio_kindae","Papio_ursinus", "Mandrillus_sphinx",
                                                               "Papio_papio", "Papio_hamadryas", "Theropithecus_gelada"))
-levels(data.by.group$Species)<-c("Gray mangabey","Sooty mangabey","Sanje mangabey",
+levels(data.by.group$Species)<-c("Gray-cheeked mangabey","Sooty mangabey","Sanje mangabey",
                                  "Olive baboon","Yellow baboon","Kinda baboon", "Chacma baboon","Mandrill",
-                                 "Guinea baboon","Hamadryas","Gelada")
+                                 "Guinea baboon","Hamadryas baboon","Gelada")
 colors.new<-c("#6BAED6","#4292C6","#2171B5","#08519C","#08306B",
               "#807DBA","#6A51A3","#3F007D",
               "#31A354","#006D2C", "#00441B")
@@ -451,7 +451,7 @@ plot2b
 getwd()
 library(patchwork)
 plot2a+plot2b + plot_annotation(tag_levels = "a")
-ggsave(file="Figure_2.jpg", units="cm", width=25, height=10, dpi=300)
+ggsave(file="Figure_2.jpg", units="cm", width=28, height=10, dpi=300)
 
 ## PART 2
 ## Female-female grooming ties were variably shaped by kinship, rank, and shared male ties
@@ -726,7 +726,7 @@ ggsave(file="Figure_3.jpg", units="cm", width=25, height=25, dpi=300)
 ## BAYESIAN STYLE
 ## RELATEDNESS META-ANALYTIC MODEL
 relatedness.meta.null<-brm(data = caps.meta, family = "student", data2=list(A=A),
-                      related.r| se(related.se) ~ scale(sqrt(GroupSize)) +
+                      ff.related.r| se(ff.related.se) ~ scale(sqrt(GroupSize)) +
                         (1|gr(phylo, cov=A)) +
                         (1|Species/population_id/group_id/group.year),
                       prior = c(prior(normal(0, 2), class = "b"),
@@ -736,7 +736,7 @@ relatedness.meta.null<-brm(data = caps.meta, family = "student", data2=list(A=A)
 
 ## RANK META-ANALYTIC MODEL
 rank.meta.null<-brm(data = caps.meta, family = "student", data2=list(A=A),
-               rank.r| se(rank.se) ~ scale(sqrt(GroupSize))  + 
+               ff.rank.r| se(ff.rank.se) ~ scale(sqrt(GroupSize))  + 
                  (1|gr(phylo, cov=A)) + (1|Species/population_id/group_id/group.year),
                prior = c(prior(normal(0, 2), class = b),
                          prior(cauchy(0, 0.3), class = sd)),
@@ -745,7 +745,7 @@ rank.meta.null<-brm(data = caps.meta, family = "student", data2=list(A=A),
 
 ## MALE META-ANALYTIC MODEL
 male.meta.null<-brm(data = caps.meta, family = "student", data2=list(A=A),
-               male.r| se(male.se) ~  scale(sqrt(GroupSize)) + (1|gr(phylo, cov=A)) +
+               ff.male.r| se(ff.male.se) ~  scale(sqrt(GroupSize)) + (1|gr(phylo, cov=A)) +
                  (1|Species/population_id/group_id/group.year),
                prior = c(prior(normal(0, 2), class = b),
                          prior(cauchy(0, 0.3), class = sd)),
