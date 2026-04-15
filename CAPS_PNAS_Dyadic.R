@@ -10,7 +10,7 @@ for(i in 1:nrow(meta.group.ff)) {
   })
   if(meta.group.ff$population_id[i]=="FILOHA") {
     model<-brm_multiple(data=edges, Groom.Index  ~ scale(RankDiff) + male.combo +  (1|mm(ID1,ID2)), 
-                        family="Gamma", chains=1, cores=1,
+                        family="Gamma", chains=4, cores=4,
                         prior = c(
                           prior(normal(0, 2), "b"),
                           prior(student_t(3, 0, 5), "sd")),
@@ -21,7 +21,7 @@ for(i in 1:nrow(meta.group.ff)) {
     meta.group.ff$male.se[i]<-fixef(model)[3,2]
   } else{
     model<-brm_multiple(data=edges, Groom.Index ~ related + scale(RankDiff) + male.combo + (1|mm(ID1,ID2)),
-                        family="gamma", chains=1, cores=4,
+                        family="gamma", chains=4, cores=4,
                         prior = c(
                           prior(normal(0, 2), "b"),
                           prior(student_t(3, 0, 5), "sd")),
@@ -44,7 +44,7 @@ for(i in 1:nrow(meta.group.fm)) {
     x <- x[x$group.year == group.year, ]
   }) 
   model<-brm_multiple(data=edges, Groom.Index~scale(Rank.Male)*scale(Rank.Fem)+
-                        (1|mm(ID1,ID2)), family="gamma", chains=1, cores=2,
+                        (1|mm(ID1,ID2)), family="gamma", chains=4, cores=4,
                       prior = c(
                         prior(normal(0, 2), "b"),
                         prior(student_t(3, 0, 5), "sd")),
